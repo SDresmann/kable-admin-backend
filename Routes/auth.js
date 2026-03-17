@@ -26,8 +26,8 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Create user – role "admin" → kableadmin DB (admin portal), role "student" → test DB (student portal)
-router.post('/create-user', async (req, res) => {
+// Create user – role "admin" → kableadmin DB (admin portal), role "student" → test DB (student portal). Requires admin auth.
+router.post('/create-user', verifyToken, async (req, res) => {
     try {
         const role = (req.body.role === 'student') ? 'student' : 'admin';
         const { valid, email, password, message } = validateRegister(req.body);
@@ -60,8 +60,8 @@ router.post('/create-user', async (req, res) => {
     }
 });
 
-// Reset password for an existing user by email – checks kableadmin first, then test (student)
-router.post('/reset-password', async (req, res) => {
+// Reset password for an existing user by email – checks kableadmin first, then test (student). Requires admin auth.
+router.post('/reset-password', verifyToken, async (req, res) => {
     try {
         const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
         const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';

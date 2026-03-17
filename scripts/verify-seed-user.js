@@ -1,5 +1,5 @@
 /**
- * Verify that mkohlmorgen@kableacademy.com exists and password ChangeMe123 works.
+ * Verify that the admin user from .env (ADMIN_EMAIL / ADMIN_PASSWORD) exists and password matches.
  * Run from backend folder: node scripts/verify-seed-user.js
  */
 const path = require('path');
@@ -9,8 +9,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const User = require('../schema/UserSchema');
 
-const SEED_EMAIL = 'mkohlmorgen@kableacademy.com';
-const TEMP_PASSWORD = 'ChangeMe123';
+const SEED_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const TEMP_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 async function verify() {
     const uri = process.env.ATLAS_URI;
@@ -28,14 +28,11 @@ async function verify() {
     }
     const passwordOk = await bcrypt.compare(TEMP_PASSWORD, user.password);
     if (!passwordOk) {
-        console.log('User EXISTS but password is NOT "ChangeMe123".');
-        console.log('They may have been created by the main Kable Career app with a different password.');
-        console.log('Either log in with that password, or delete this user in MongoDB and run: npm run seed');
+        console.log('User EXISTS but password does not match ADMIN_PASSWORD in .env.');
+        console.log('Update .env or delete this user in MongoDB and run: npm run seed');
         process.exit(1);
     }
-    console.log('OK: User exists and password matches. They can log in with:');
-    console.log('  Email:', SEED_EMAIL);
-    console.log('  Password:', TEMP_PASSWORD);
+    console.log('OK: Admin user exists and password matches .env. You can log in with ADMIN_EMAIL.');
 }
 
 verify().catch((err) => {

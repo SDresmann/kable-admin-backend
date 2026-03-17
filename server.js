@@ -67,15 +67,17 @@ const overdueCheckRouter = require('./Routes/overdueCheck');
 const runOverdueCheck = overdueCheckRouter.runOverdueCheck;
 const debugRouter = require('./Routes/debug');
 const authRouter = require('./Routes/auth');
-app.use('/api/students', studentsRouter);
-app.use('/api/cohorts', cohortsRouter);
+const { verifyToken } = require('./middleware/authJwt');
+
 app.use('/api/released-sections', releasedSectionsRouter);
 app.use('/api/cron/check-overdue', overdueCheckRouter);
-app.use('/api/submissions', submissionsRouter);
-app.use('/api/quiz-results', quizResultsRouter);
-app.use('/api/assignment-comments', assignmentCommentsRouter);
-app.use('/api/debug', debugRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/students', verifyToken, studentsRouter);
+app.use('/api/cohorts', verifyToken, cohortsRouter);
+app.use('/api/submissions', verifyToken, submissionsRouter);
+app.use('/api/quiz-results', verifyToken, quizResultsRouter);
+app.use('/api/assignment-comments', verifyToken, assignmentCommentsRouter);
+app.use('/api/debug', verifyToken, debugRouter);
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
