@@ -14,6 +14,7 @@ app.use(helmet());
 app.use(cors({
   origin: [
     'https://kable-admin.onrender.com',
+    'https://kable-career.onrender.com',
     'http://localhost:3000',
     'http://localhost:3001',
   ],
@@ -43,7 +44,7 @@ if (uri) {
 }
 
 app.use(function (req, res, next) {
-    const allow = ['https://kable-admin.onrender.com', 'http://localhost:3000', 'http://localhost:3001'];
+    const allow = ['https://kable-admin.onrender.com', 'https://kable-career.onrender.com', 'http://localhost:3000', 'http://localhost:3001'];
     const origin = req.headers.origin;
     if (origin && allow.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
     else res.setHeader('Access-Control-Allow-Origin', allow[0]);
