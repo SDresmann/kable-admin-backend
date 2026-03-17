@@ -9,8 +9,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const User = require('../schema/UserSchema');
 
-const SEED_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-const TEMP_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const SEED_EMAIL = (process.env.ADMIN_EMAIL || process.env.SMTP_USER || '').trim().toLowerCase();
+const TEMP_PASSWORD = process.env.ADMIN_PASSWORD || process.env.SMTP_PASS || '';
 
 async function verify() {
     const uri = process.env.ATLAS_URI;
