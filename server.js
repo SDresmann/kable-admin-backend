@@ -11,7 +11,16 @@ const app = express();
 const port = process.env.PORT || 5001;
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://kable-admin.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001',
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 
 // MongoDB connection – default db "kableadmin". Student data (quizzes, submissions, etc.) is read from "test" DB.
@@ -34,9 +43,14 @@ if (uri) {
 }
 
 app.use(function (req, res, next) {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    const allow = ['https://kable-admin.onrender.com', 'http://localhost:3000', 'http://localhost:3001'];
+    const origin = req.headers.origin;
+    if (origin && allow.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+    else res.setHeader('Access-Control-Allow-Origin', allow[0]);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, X-Requested-With, Accept');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
 });
 
