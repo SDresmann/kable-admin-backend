@@ -33,16 +33,18 @@ async function seed() {
         process.exit(1);
     }
     console.log('Connected. Checking for existing admin user...');
-    const existing = await User.findOne({ email: SEED_EMAIL });
+    const hashed = await bcrypt.hash(SEED_PASSWORD, 10);
+    let existing = await User.findOne({ email: SEED_EMAIL });
     if (existing) {
-        console.log(`Admin user ${SEED_EMAIL} already exists. You can log in with your .env password.`);
+        existing.password = hashed;
+        await existing.save();
+        console.log(`Admin user ${SEED_EMAIL} already exists. Password updated to match .env – you can log in now.`);
         await mongoose.disconnect();
         process.exit(0);
         return;
     }
     console.log('Admin user not found. Creating from .env credentials...');
     try {
-        const hashed = await bcrypt.hash(SEED_PASSWORD, 10);
         await User.create({ email: SEED_EMAIL, password: hashed });
     } catch (err) {
         console.error('ERROR creating user:', err.message);
