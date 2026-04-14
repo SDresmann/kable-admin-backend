@@ -84,6 +84,27 @@ async function sendEmailViaSmtp({ to, subject, text, html }) {
     });
 }
 
+async function sendMailWithFallback({ to, subject, text, html, logPrefix = 'mail' }) {
+    if (!hasMailConfig()) {
+        throw new Error('Email not configured: set Graph credentials or SMTP_USER/SMTP_PASS in backend .env');
+    }
+    if (useGraph()) {
+        try {
+            await sendEmailViaGraph({ to, subject, html });
+            return 'graph';
+        } catch (graphErr) {
+            if (!canUseSmtp()) {
+                throw new Error(`Graph send failed and SMTP is not configured: ${graphErr.message}`);
+            }
+            console.warn(`[${logPrefix}] Graph send failed for ${to}, falling back to SMTP: ${graphErr.message}`);
+            await sendEmailViaSmtp({ to, subject, text, html });
+            return 'smtp-fallback';
+        }
+    }
+    await sendEmailViaSmtp({ to, subject, text, html });
+    return 'smtp';
+}
+
 async function sendStudentWelcomeEmail({ email, password }) {
     const loginUrl = process.env.STUDENT_PORTAL_LOGIN_URL || 'https://kable-career.onrender.com/login';
     const subject = 'Welcome to Kable Academy - Student Account Created';
@@ -108,14 +129,7 @@ Please log in and change your password as soon as possible.`;
   </body>
 </html>`;
 
-    if (!hasMailConfig()) {
-        throw new Error('Email not configured: set Graph credentials or SMTP_USER/SMTP_PASS in backend .env');
-    }
-    if (useGraph()) {
-        await sendEmailViaGraph({ to: email, subject, html });
-    } else {
-        await sendEmailViaSmtp({ to: email, subject, text, html });
-    }
+    await sendMailWithFallback({ to: email, subject, text, html, logPrefix: 'create-user' });
 }
 
 // Login
@@ -213,6 +227,37 @@ router.post('/reset-password', verifyToken, async (req, res) => {
         res.json({ message: `Password updated for ${dbLabel}. They can now log in with this password.` });
     } catch (err) {
         res.status(500).json({ message: 'Failed to reset password' });
+    }
+});
+
+// Send a test email to validate mail configuration (requires admin auth)
+router.post('/test-email', verifyToken, async (req, res) => {
+    try {
+        const toEmail = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+        if (!toEmail) {
+            return res.status(400).json({ message: 'Email is required' });
+        }
+        const subject = 'Kable Admin - Test Email';
+        const text = `This is a test email from Kable Admin backend.
+
+If you received this, outbound email is configured correctly.`;
+        const html = `<!doctype html>
+<html>
+  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <p>This is a test email from <strong>Kable Admin backend</strong>.</p>
+    <p>If you received this, outbound email is configured correctly.</p>
+  </body>
+</html>`;
+        const provider = await sendMailWithFallback({
+            to: toEmail,
+            subject,
+            text,
+            html,
+            logPrefix: 'test-email',
+        });
+        return res.json({ message: `Test email sent to ${toEmail}`, provider });
+    } catch (err) {
+        return res.status(500).json({ message: err.message || 'Failed to send test email' });
     }
 });
 
