@@ -28,9 +28,33 @@ app.use(express.json());
 const uri = process.env.ATLAS_URI;
 const uriTest = process.env.ATLAS_URI_TEST; // Optional: same URI as Kable Career so admin sees same data (e.g. mongodb+srv://.../test)
 const dbName = 'kableadmin';
+
+async function ensureAdminUser() {
+    const bcrypt = require('bcrypt');
+    const User = require('./schema/UserSchema');
+    const email = (process.env.ADMIN_EMAIL || process.env.SMTP_USER || '').trim().toLowerCase();
+    const password = process.env.ADMIN_PASSWORD || process.env.SMTP_PASS || '';
+    if (!email || !password) return;
+    try {
+        const existing = await User.findOne({ email });
+        const hashed = await bcrypt.hash(password, 10);
+        if (existing) {
+            existing.password = hashed;
+            await existing.save();
+            console.log('Admin user updated from .env');
+        } else {
+            await User.create({ email, password: hashed });
+            console.log('Admin user created from .env');
+        }
+    } catch (err) {
+        console.error('ensureAdminUser failed:', err.message);
+    }
+}
+
 if (uri) {
-    mongoose.connect(uri, { dbName }).then(() => {
+    mongoose.connect(uri, { dbName }).then(async () => {
         console.log(`MongoDB connected to database "${dbName}"`);
+        await ensureAdminUser();
         if (uriTest) {
             const testConn = mongoose.createConnection(uriTest);
             testConn.asPromise().then(() => console.log('MongoDB test DB connection (ATLAS_URI_TEST) ready')).catch((e) => console.error('ATLAS_URI_TEST connection error:', e.message));
@@ -75,7 +99,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/students', verifyToken, studentsRouter);
 app.use('/api/cohorts', verifyToken, cohortsRouter);
 app.use('/api/submissions', verifyToken, submissionsRouter);
-app.use('/api/quiz-results', verifyToken, quizResultsRouter);
+// Public so student app can submit/check quiz results without admin token
+app.use('/api/quiz-results', quizResultsRouter);
 app.use('/api/assignment-comments', verifyToken, assignmentCommentsRouter);
 app.use('/api/debug', verifyToken, debugRouter);
 

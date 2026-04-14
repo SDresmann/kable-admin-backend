@@ -11,7 +11,7 @@ function getStudentModel() {
 router.get('/', async (req, res) => {
     try {
         const Student = getStudentModel();
-        const users = await Student.find({}, { password: 0 }).sort({ email: 1 });
+        const users = await Student.find({}, { password: 0 }).sort({ email: 1 }).lean();
         res.json({ success: true, data: users });
     } catch (err) {
         console.error('Error fetching students:', err);
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const Student = getStudentModel();
-        const user = await Student.findOne({ _id: req.params.id }, { password: 0 });
+        const user = await Student.findOne({ _id: req.params.id }, { password: 0 }).lean();
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }

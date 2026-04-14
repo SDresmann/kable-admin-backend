@@ -13,7 +13,7 @@ router.get('/', async (req, res) => {
     const AssignmentComment = getAssignmentCommentModel();
     const filter = {};
     if (req.query.userEmail && req.query.userEmail.trim()) {
-      filter.userEmail = { $regex: new RegExp(`^${req.query.userEmail.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+      filter.userEmail = req.query.userEmail.trim().toLowerCase();
     }
     const comments = await AssignmentComment.find(filter)
       .sort({ submittedAt: -1 })

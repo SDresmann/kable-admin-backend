@@ -8,6 +8,7 @@ const cohortSectionReleaseSchema = new mongoose.Schema({
 });
 
 cohortSectionReleaseSchema.index({ cohortId: 1, sectionId: 1 }, { unique: true });
+cohortSectionReleaseSchema.index({ cohortId: 1, startDate: 1 });
 
 const CohortSectionRelease = mongoose.model('CohortSectionRelease', cohortSectionReleaseSchema);
 

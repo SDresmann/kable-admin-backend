@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
     const testDb = getTestDb();
     const UserModel = testDb.models.user || testDb.model('user', User.schema);
     const user = await UserModel.findOne(
-      { email: new RegExp(`^${userEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      { email: userEmail.toLowerCase() },
       { cohortId: 1 }
     ).lean();
     if (!user || !user.cohortId) {

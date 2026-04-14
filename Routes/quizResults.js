@@ -13,7 +13,7 @@ router.get('/', async (req, res) => {
     const SectionQuizResult = getSectionQuizResultModel();
     const filter = {};
     if (req.query.userEmail && req.query.userEmail.trim()) {
-      filter.userEmail = { $regex: new RegExp(`^${req.query.userEmail.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+      filter.userEmail = req.query.userEmail.trim().toLowerCase();
     }
     const results = await SectionQuizResult.find(filter)
       .sort({ completedAt: -1 })
@@ -25,7 +25,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/quiz-results – save a section quiz result (e.g. from Kable Career app)
+// POST /api/quiz-results – save a section quiz result (e.g. from Kable Career app).
 router.post('/', async (req, res) => {
   try {
     const SectionQuizResult = getSectionQuizResultModel();
@@ -33,12 +33,14 @@ router.post('/', async (req, res) => {
     if (!userEmail || sectionId == null || score == null || total == null) {
       return res.status(400).json({ success: false, message: 'Missing required fields: userEmail, sectionId, score, total' });
     }
+    const scoreNum = Number(score);
+    const totalNum = Number(total);
     const doc = await SectionQuizResult.create({
-      userEmail: String(userEmail).trim(),
+      userEmail: String(userEmail).trim().toLowerCase(),
       sectionId: String(sectionId),
       sectionTitle: sectionTitle ? String(sectionTitle) : '',
-      score: Number(score),
-      total: Number(total),
+      score: scoreNum,
+      total: totalNum,
       completedAt: new Date(),
     });
     res.status(201).json({ success: true, data: doc });

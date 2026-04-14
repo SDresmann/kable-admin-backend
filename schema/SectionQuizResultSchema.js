@@ -9,6 +9,8 @@ const sectionQuizResultSchema = new mongoose.Schema({
   completedAt: { type: Date, default: Date.now },
 });
 
+sectionQuizResultSchema.index({ userEmail: 1, completedAt: -1 });
+
 const SectionQuizResult = mongoose.model('SectionQuizResult', sectionQuizResultSchema);
 
 module.exports = SectionQuizResult;

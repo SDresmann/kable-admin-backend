@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
     const ChecklistSubmission = getChecklistSubmissionModel();
     const filter = {};
     if (req.query.userEmail && req.query.userEmail.trim()) {
-      filter.userEmail = { $regex: new RegExp(`^${req.query.userEmail.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+      filter.userEmail = req.query.userEmail.trim().toLowerCase();
     }
     const submissions = await ChecklistSubmission.find(filter)
       .select('-fileContent')

@@ -11,6 +11,9 @@ const assignmentCommentSchema = new mongoose.Schema({
   submittedAt: { type: Date, default: Date.now },
 });
 
+assignmentCommentSchema.index({ userEmail: 1, sectionId: 1, assignmentIndex: 1 });
+assignmentCommentSchema.index({ userEmail: 1, submittedAt: -1 });
+
 const AssignmentComment = mongoose.model('AssignmentComment', assignmentCommentSchema);
 
 module.exports = AssignmentComment;

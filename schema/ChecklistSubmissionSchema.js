@@ -10,6 +10,9 @@ const checklistSubmissionSchema = new mongoose.Schema({
   submittedAt: { type: Date, default: Date.now },
 });
 
+checklistSubmissionSchema.index({ userEmail: 1, assignmentName: 1 });
+checklistSubmissionSchema.index({ userEmail: 1, submittedAt: -1 });
+
 const ChecklistSubmission = mongoose.model('ChecklistSubmission', checklistSubmissionSchema);
 
 module.exports = ChecklistSubmission;

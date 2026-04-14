@@ -76,6 +76,18 @@ async function runOverdueCheck(opts = {}) {
         results.debug.students.push(summary);
       }
 
+      const emailLower = (student.email || '').trim().toLowerCase();
+      const [allComments, allSubmissions] = await Promise.all([
+        AssignmentComment.find({ userEmail: emailLower }).select('sectionId assignmentIndex').lean(),
+        ChecklistSubmission.find({ userEmail: emailLower }).select('assignmentName').lean(),
+      ]);
+      const commentSet = new Set(
+        allComments.map((c) => `${Number(c.sectionId)}:${Number(c.assignmentIndex)}`)
+      );
+      const submissionNamesLower = new Set(
+        allSubmissions.map((s) => (s.assignmentName || '').toLowerCase())
+      );
+
       const overdueAssignments = [];
       for (const rel of releases) {
         const releaseStart = new Date(rel.startDate);
@@ -85,30 +97,11 @@ async function runOverdueCheck(opts = {}) {
         if (dueDate > today) continue; // not overdue yet (due date is in the future)
         const sectionId = rel.sectionId;
         const names = getAssignmentNames(sectionId);
-        const emailRegex = new RegExp(`^${(student.email || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
         for (let idx = 0; idx < names.length; idx++) {
           const assignmentName = names[idx];
-          let hasComment = false;
-          try {
-            const c = await AssignmentComment.findOne({
-              userEmail: emailRegex,
-              sectionId: Number(sectionId),
-              assignmentIndex: idx,
-            }).select('_id').lean();
-            hasComment = !!c;
-          } catch (_) {}
-          if (hasComment) continue;
-          let hasChecklist = false;
-          try {
-            const nameEsc = (assignmentName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const cl = await ChecklistSubmission.findOne({
-              userEmail: emailRegex,
-              assignmentName: new RegExp(`^${nameEsc}$`, 'i'),
-            }).select('_id').lean();
-            hasChecklist = !!cl;
-          } catch (_) {}
-          if (hasChecklist) continue;
+          if (commentSet.has(`${Number(sectionId)}:${idx}`)) continue;
+          if (submissionNamesLower.has((assignmentName || '').toLowerCase())) continue;
           overdueAssignments.push({ sectionId, assignmentName, dueDate });
         }
       }
