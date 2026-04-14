@@ -6,15 +6,18 @@ const { validateRegister, validateLogin, validateChangePassword } = require('../
 
 function useGraph() {
     return !!(
-        process.env.MS_CLIENT_ID &&
-        process.env.MS_CLIENT_SECRET &&
-        process.env.MS_TENANT_ID &&
-        process.env.MS_SENDER_UPN
+        String(process.env.MS_CLIENT_ID || '').trim() &&
+        String(process.env.MS_CLIENT_SECRET || '').trim() &&
+        String(process.env.MS_TENANT_ID || '').trim() &&
+        String(process.env.MS_SENDER_UPN || '').trim()
     );
 }
 
 function canUseSmtp() {
-    return !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+    return !!(
+        String(process.env.SMTP_USER || '').trim() &&
+        String(process.env.SMTP_PASS || '').trim()
+    );
 }
 
 function hasMailConfig() {
@@ -40,7 +43,7 @@ async function getGraphAccessToken() {
 
 async function sendEmailViaGraph({ to, subject, html }) {
     const token = await getGraphAccessToken();
-    const sender = process.env.MS_SENDER_UPN;
+    const sender = String(process.env.MS_SENDER_UPN || '').trim();
     const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
         method: 'POST',
         headers: {
@@ -69,40 +72,78 @@ async function sendEmailViaGraph({ to, subject, html }) {
 
 async function sendEmailViaSmtp({ to, subject, text, html }) {
     const nodemailer = require('nodemailer');
+    const host = String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const user = String(process.env.SMTP_USER || '').trim();
+    const pass = String(process.env.SMTP_PASS || '').trim();
+    const isOffice365 = /office365|outlook\.com|microsoft/i.test(host);
     const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: Number(process.env.SMTP_PORT) || 587,
+        host,
+        port,
         secure: process.env.SMTP_SECURE === 'true',
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        requireTLS: isOffice365 || process.env.SMTP_REQUIRE_TLS === 'true',
+        tls: { minVersion: 'TLSv1.2' },
+        auth: { user, pass },
     });
-    await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    const fromAddr = String(process.env.SMTP_FROM || user).trim();
+    const info = await transporter.sendMail({
+        from: fromAddr,
         to,
         subject,
         text,
         html,
     });
+    if (info?.messageId) {
+        console.log(`[smtp] queued/sent messageId=${info.messageId} to=${to}`);
+    }
 }
 
-async function sendMailWithFallback({ to, subject, text, html, logPrefix = 'mail' }) {
+/** MAIL_PRIMARY=smtp | graph | (unset = smtp then graph when both exist) */
+function mailStrategiesOrder() {
+    const p = String(process.env.MAIL_PRIMARY || '').trim().toLowerCase();
+    const hasS = canUseSmtp();
+    const hasG = useGraph();
+    if (!hasS && !hasG) return [];
+    if (p === 'graph') {
+        return hasG ? (hasS ? ['graph', 'smtp'] : ['graph']) : ['smtp'];
+    }
+    if (p === 'smtp') {
+        return hasS ? (hasG ? ['smtp', 'graph'] : ['smtp']) : ['graph'];
+    }
+    // Default: try SMTP first (works for most Office365 app-password setups; Graph app-only often lacks Mail.Send)
+    return hasS ? (hasG ? ['smtp', 'graph'] : ['smtp']) : ['graph'];
+}
+
+async function sendMailWithStrategies({ to, subject, text, html, logPrefix = 'mail' }) {
     if (!hasMailConfig()) {
         throw new Error('Email not configured: set Graph credentials or SMTP_USER/SMTP_PASS in backend .env');
     }
-    if (useGraph()) {
+    const order = mailStrategiesOrder();
+    if (order.length === 0) {
+        throw new Error('Email not configured');
+    }
+    let lastErr;
+    for (let i = 0; i < order.length; i += 1) {
+        const strategy = order[i];
         try {
-            await sendEmailViaGraph({ to, subject, html });
-            return 'graph';
-        } catch (graphErr) {
-            if (!canUseSmtp()) {
-                throw new Error(`Graph send failed and SMTP is not configured: ${graphErr.message}`);
+            if (strategy === 'smtp') {
+                await sendEmailViaSmtp({ to, subject, text, html });
+                console.log(`[${logPrefix}] mail sent via smtp to ${to}`);
+                return i === 0 ? 'smtp' : 'smtp-fallback';
             }
-            console.warn(`[${logPrefix}] Graph send failed for ${to}, falling back to SMTP: ${graphErr.message}`);
-            await sendEmailViaSmtp({ to, subject, text, html });
-            return 'smtp-fallback';
+            await sendEmailViaGraph({ to, subject, html });
+            console.log(`[${logPrefix}] mail sent via graph to ${to}`);
+            return i === 0 ? 'graph' : 'graph-fallback';
+        } catch (err) {
+            lastErr = err;
+            console.warn(`[${logPrefix}] ${strategy} failed for ${to}:`, err.message);
         }
     }
-    await sendEmailViaSmtp({ to, subject, text, html });
-    return 'smtp';
+    throw lastErr || new Error('All mail strategies failed');
+}
+
+async function sendMailWithFallback({ to, subject, text, html, logPrefix = 'mail' }) {
+    return sendMailWithStrategies({ to, subject, text, html, logPrefix });
 }
 
 async function sendStudentWelcomeEmail({ email, password }) {
@@ -129,7 +170,7 @@ Please log in and change your password as soon as possible.`;
   </body>
 </html>`;
 
-    await sendMailWithFallback({ to: email, subject, text, html, logPrefix: 'create-user' });
+    return sendMailWithStrategies({ to: email, subject, text, html, logPrefix: 'create-user' });
 }
 
 // Login
@@ -183,8 +224,9 @@ router.post('/create-user', verifyToken, async (req, res) => {
         const user = await TestUser.create({ email, password: hashed, ...(cohortId && { cohortId }) });
         let emailSent = false;
         let emailError = null;
+        let emailProvider = null;
         try {
-            await sendStudentWelcomeEmail({ email, password });
+            emailProvider = await sendStudentWelcomeEmail({ email, password });
             emailSent = true;
         } catch (mailErr) {
             emailError = mailErr?.message || 'Failed to send welcome email';
@@ -197,6 +239,7 @@ router.post('/create-user', verifyToken, async (req, res) => {
             role: 'student',
             cohortId: user.cohortId,
             emailSent,
+            ...(emailSent && emailProvider ? { emailProvider } : {}),
             ...(emailError ? { emailError } : {}),
         });
     } catch (err) {
