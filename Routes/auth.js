@@ -172,7 +172,7 @@ async function sendMailWithFallback({ to, subject, text, html, logPrefix = 'mail
 }
 
 async function sendStudentWelcomeEmail({ email, password }) {
-    const loginUrl = process.env.STUDENT_PORTAL_LOGIN_URL || 'https://kable-career.onrender.com';
+    const loginUrl = 'https://kable-career.onrender.com';
     const subject = 'Welcome to Kable Academy - Student Account Created';
     const text = `Welcome to Kable Academy!
 
