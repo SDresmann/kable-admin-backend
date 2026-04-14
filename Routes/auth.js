@@ -24,6 +24,15 @@ function hasMailConfig() {
     return useGraph() || canUseSmtp();
 }
 
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+        }),
+    ]);
+}
+
 async function getGraphAccessToken() {
     const msal = require('@azure/msal-node');
     const config = {
@@ -44,7 +53,7 @@ async function getGraphAccessToken() {
 async function sendEmailViaGraph({ to, subject, html }) {
     const token = await getGraphAccessToken();
     const sender = String(process.env.MS_SENDER_UPN || '').trim();
-    const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    const sendMailRequest = fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${token}`,
@@ -59,6 +68,11 @@ async function sendEmailViaGraph({ to, subject, html }) {
             saveToSentItems: true,
         }),
     });
+    const res = await withTimeout(
+        sendMailRequest,
+        Number(process.env.MAIL_TIMEOUT_MS) || 10000,
+        'Graph email timeout'
+    );
     if (!res.ok) {
         const errBody = await res.text();
         let msg = `Graph sendMail ${res.status}`;
@@ -82,6 +96,9 @@ async function sendEmailViaSmtp({ to, subject, text, html }) {
         port,
         secure: process.env.SMTP_SECURE === 'true',
         requireTLS: isOffice365 || process.env.SMTP_REQUIRE_TLS === 'true',
+        connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS) || 10000,
+        greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS) || 10000,
+        socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS) || 15000,
         tls: { minVersion: 'TLSv1.2' },
         auth: { user, pass },
     });
@@ -127,11 +144,19 @@ async function sendMailWithStrategies({ to, subject, text, html, logPrefix = 'ma
         const strategy = order[i];
         try {
             if (strategy === 'smtp') {
-                await sendEmailViaSmtp({ to, subject, text, html });
+                await withTimeout(
+                    sendEmailViaSmtp({ to, subject, text, html }),
+                    Number(process.env.MAIL_TIMEOUT_MS) || 10000,
+                    'SMTP email timeout'
+                );
                 console.log(`[${logPrefix}] mail sent via smtp to ${to}`);
                 return i === 0 ? 'smtp' : 'smtp-fallback';
             }
-            await sendEmailViaGraph({ to, subject, html });
+            await withTimeout(
+                sendEmailViaGraph({ to, subject, html }),
+                Number(process.env.MAIL_TIMEOUT_MS) || 10000,
+                'Graph email timeout'
+            );
             console.log(`[${logPrefix}] mail sent via graph to ${to}`);
             return i === 0 ? 'graph' : 'graph-fallback';
         } catch (err) {
@@ -171,6 +196,11 @@ Please log in and change your password as soon as possible.`;
 </html>`;
 
     return sendMailWithStrategies({ to: email, subject, text, html, logPrefix: 'create-user' });
+}
+
+function isWelcomeEmailAsync() {
+    const v = String(process.env.WELCOME_EMAIL_ASYNC || '').trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes';
 }
 
 // Login
@@ -225,22 +255,40 @@ router.post('/create-user', verifyToken, async (req, res) => {
         let emailSent = false;
         let emailError = null;
         let emailProvider = null;
-        try {
-            emailProvider = await sendStudentWelcomeEmail({ email, password });
-            emailSent = true;
-        } catch (mailErr) {
-            emailError = mailErr?.message || 'Failed to send welcome email';
-            console.error(`[create-user] Welcome email failed for ${email}:`, emailError);
+        const emailQueued = isWelcomeEmailAsync();
+        if (emailQueued) {
+            setImmediate(() => {
+                sendStudentWelcomeEmail({ email, password })
+                    .then((provider) => {
+                        console.log(`[create-user] Welcome email sent async to ${email} via ${provider}`);
+                    })
+                    .catch((mailErr) => {
+                        console.error(`[create-user] Welcome email async failed for ${email}:`, mailErr?.message || mailErr);
+                    });
+            });
+        } else {
+            try {
+                emailProvider = await sendStudentWelcomeEmail({ email, password });
+                emailSent = true;
+            } catch (mailErr) {
+                emailError = mailErr?.message || 'Failed to send welcome email';
+                console.error(`[create-user] Welcome email failed for ${email}:`, emailError);
+            }
         }
         res.status(201).json({
-            message: emailSent ? 'User created and welcome email sent' : 'User created, but welcome email failed',
+            message: emailQueued
+                ? 'User created; welcome email is sending in the background'
+                : emailSent
+                    ? 'User created and welcome email sent'
+                    : 'User created, but welcome email failed',
             userId: user._id,
             email: user.email,
             role: 'student',
             cohortId: user.cohortId,
-            emailSent,
-            ...(emailSent && emailProvider ? { emailProvider } : {}),
-            ...(emailError ? { emailError } : {}),
+            emailQueued,
+            ...(emailQueued ? {} : { emailSent }),
+            ...(emailQueued ? {} : emailSent && emailProvider ? { emailProvider } : {}),
+            ...(emailQueued ? {} : emailError ? { emailError } : {}),
         });
     } catch (err) {
         const msg = err.code === 11000 ? 'Email already registered' : 'User creation failed';

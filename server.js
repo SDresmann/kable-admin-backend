@@ -7,20 +7,23 @@ const helmet = require('helmet');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const app = express();
-// Admin backend runs on 5001 so it doesn't conflict with Kable Career (5000)
-const port = process.env.PORT || 5001;
+// Admin backend runs on 5001 locally; hosts like Render inject PORT.
+const rawPort = process.env.PORT;
+const parsedPort = rawPort != null && String(rawPort).trim() !== '' ? Number(String(rawPort).trim()) : NaN;
+const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 5001;
 
 app.use(helmet());
+const allowedOrigins = [
+  'https://kable-admin.onrender.com',
+  'https://kable-career.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
 app.use(cors({
-  origin: [
-    'https://kable-admin.onrender.com',
-    'https://kable-career.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:3001',
-  ],
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept'],
 }));
 app.use(express.json());
 
@@ -32,31 +35,59 @@ const dbName = 'kableadmin';
 async function ensureAdminUser() {
     const bcrypt = require('bcrypt');
     const User = require('./schema/UserSchema');
-    const email = (process.env.ADMIN_EMAIL || process.env.SMTP_USER || '').trim().toLowerCase();
-    const password = process.env.ADMIN_PASSWORD || process.env.SMTP_PASS || '';
-    if (!email || !password) return;
-    try {
-        const existing = await User.findOne({ email });
-        const hashed = await bcrypt.hash(password, 10);
-        if (existing) {
-            existing.password = hashed;
-            await existing.save();
-            console.log('Admin user updated from .env');
-        } else {
-            await User.create({ email, password: hashed });
-            console.log('Admin user created from .env');
+    const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    const adminPassword = String(process.env.ADMIN_PASSWORD || '');
+    const smtpEmail = String(process.env.SMTP_USER || '').trim().toLowerCase();
+    const smtpPassword = String(process.env.SMTP_PASS || '');
+
+    // Prefer explicit admin bootstrap vars (updates password on each deploy if provided)
+    if (adminEmail && adminPassword) {
+        try {
+            const existing = await User.findOne({ email: adminEmail });
+            const hashed = await bcrypt.hash(adminPassword, 10);
+            if (existing) {
+                existing.password = hashed;
+                await existing.save();
+                console.log('Admin user updated from ADMIN_EMAIL/ADMIN_PASSWORD');
+            } else {
+                await User.create({ email: adminEmail, password: hashed });
+                console.log('Admin user created from ADMIN_EMAIL/ADMIN_PASSWORD');
+            }
+        } catch (err) {
+            console.error('ensureAdminUser failed:', err.message);
         }
+        return;
+    }
+
+    // One-time bootstrap only: if there are zero admins, create from SMTP creds (do not rewrite password every cold start)
+    if (!smtpEmail || !smtpPassword) return;
+    try {
+        const count = await User.countDocuments();
+        if (count > 0) return;
+        const hashed = await bcrypt.hash(smtpPassword, 10);
+        await User.create({ email: smtpEmail, password: hashed });
+        console.log('Admin user bootstrapped from SMTP_USER/SMTP_PASS (first run only)');
     } catch (err) {
-        console.error('ensureAdminUser failed:', err.message);
+        console.error('ensureAdminUser bootstrap failed:', err.message);
     }
 }
 
 if (uri) {
-    mongoose.connect(uri, { dbName }).then(async () => {
+    const mongoOpts = {
+        dbName,
+        serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 10000,
+        socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000,
+        maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE) || 10,
+    };
+    mongoose.connect(uri, mongoOpts).then(async () => {
         console.log(`MongoDB connected to database "${dbName}"`);
         await ensureAdminUser();
         if (uriTest) {
-            const testConn = mongoose.createConnection(uriTest);
+            const testConn = mongoose.createConnection(uriTest, {
+                serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 10000,
+                socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000,
+                maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE) || 10,
+            });
             testConn.asPromise().then(() => console.log('MongoDB test DB connection (ATLAS_URI_TEST) ready')).catch((e) => console.error('ATLAS_URI_TEST connection error:', e.message));
             require('./testDb').setTestConnection(testConn);
         }
@@ -66,19 +97,6 @@ if (uri) {
 } else {
     console.warn('ATLAS_URI not set in .env – add it to connect to MongoDB. Use double quotes: ATLAS_URI="mongodb+srv://..."');
 }
-
-app.use(function (req, res, next) {
-    const allow = ['https://kable-admin.onrender.com', 'https://kable-career.onrender.com', 'http://localhost:3000', 'http://localhost:3001'];
-    const origin = req.headers.origin;
-    if (origin && allow.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
-    else res.setHeader('Access-Control-Allow-Origin', allow[0]);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, X-Requested-With, Accept');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    next();
-});
-
 
 // All student data read from "test" DB (same as your DB: users, checklistsubmissions, sectionquizresults, assignmentcomments)
 const studentsRouter = require('./Routes/students');
