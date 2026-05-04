@@ -22,7 +22,13 @@ function verifyToken(req, res, next) {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.userId = decoded.userId;
         next();
-    } catch (_) {
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ message: 'Session expired. Please log in again.' });
+        }
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(401).json({ message: 'Invalid session. Please log in again.' });
+        }
         return res.status(401).json({ message: 'Invalid or expired token' });
     }
 }

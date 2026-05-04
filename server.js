@@ -19,13 +19,24 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
 ];
-app.use(cors({
-  origin: allowedOrigins,
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow non-browser/server-to-server calls with no Origin header.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept'],
-}));
+};
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'kable-career-admin' });
+});
 
 // MongoDB connection – default db "kableadmin". Student data (quizzes, submissions, etc.) is read from "test" DB.
 const uri = process.env.ATLAS_URI;
